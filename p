@@ -415,7 +415,7 @@ do
     _loadCfg()
 
     Window:Tag({
-        Title = "Premium v1.17",
+        Title = "Premium v1.16",
         Icon = "solar:crown-line-bold",
         Color = Color3.fromRGB(190, 140, 255),
         Border = true,
@@ -840,10 +840,6 @@ do
         _gachaWaitingSince = 0,
         _autoFarmToggle    = nil,
 
-        _v2KickEnded       = true,
-        _v2EndedConn       = nil,
-        _v2Kicking         = false,
-
         collectTP          = false,
         loopDelay          = _cfg.loopDelay or 30,
 
@@ -1101,91 +1097,37 @@ do
             end
             return bestTool
         end
-        -- Tool yang sedang di-force equip (diingat biar bisa dilepas saat disable)
-        local _forcedWeightTool = nil
-        local _autoWeightConn   = nil  -- Heartbeat connection
-
-        local function _forceEquipTool(tool)
-            -- Force reparent langsung ke Character, bypass server-side unequip
-            local char = LocalPlayer.Character
-            if not char or not tool or not tool.Parent then return end
-            pcall(function()
-                tool.Parent = char
-            end)
-        end
-
-        local function _unforceEquipTool(tool)
-            -- Kembalikan ke Backpack saat disable
-            local bp = LocalPlayer:FindFirstChildOfClass("Backpack")
-            if not bp or not tool or not tool.Parent then return end
-            pcall(function()
-                tool.Parent = bp
-            end)
-        end
-
         local function equipAndStartX2()
             local char = LocalPlayer.Character
-            local hum  = char and char:FindFirstChildOfClass("Humanoid")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
             if not hum then
-                WindUI:Notify({ Title = "Auto Weight", Content = "Character not found", Duration = 2 })
+                WindUI:Notify({
+                    Title = "Auto Weight",
+                    Content = "Character not found",
+                    Duration = 2
+                })
                 return false
             end
             local tool = findWeightTool()
             if not tool then
-                WindUI:Notify({ Title = "Auto Weight", Content = "No weight in backpack!", Duration = 3 })
+                WindUI:Notify({
+                    Title = "Auto Weight",
+                    Content = "No weight in backpack!",
+                    Duration = 3
+                })
                 return false
             end
-            -- Coba hum:EquipTool dulu (normal path), fallback ke force reparent
-            local ok = pcall(function() hum:EquipTool(tool) end)
-            if not ok then
-                _forceEquipTool(tool)
-            end
-            _forcedWeightTool = tool
-            WindUI:Notify({ Title = "Auto Weight", Content = "Equipped: " .. tool.Name, Duration = 2 })
+            pcall(function()
+                hum:EquipTool(tool)
+            end)
+            task.wait(0.3)
+            WindUI:Notify({
+                Title = "Auto Weight",
+                Content = "Equipped: " .. tool.Name,
+                Duration = 2
+            })
             return true
         end
-
-        local function startWeightForceLoop()
-            -- Hentikan loop lama kalau ada
-            if _autoWeightConn then
-                pcall(function() _autoWeightConn:Disconnect() end)
-                _autoWeightConn = nil
-            end
-            -- Heartbeat loop: kalau tool ketahuan unequipped oleh server, langsung paksa balik
-            _autoWeightConn = RunService.Heartbeat:Connect(function()
-                if not autoWeightOn then return end
-                local tool = _forcedWeightTool
-                if not tool or not tool.Parent then
-                    -- Tool hilang / destroyed, cari lagi
-                    local newTool = findWeightTool()
-                    if newTool then
-                        _forcedWeightTool = newTool
-                        tool = newTool
-                    else
-                        return
-                    end
-                end
-                local char = LocalPlayer.Character
-                if not char then return end
-                -- Kalau tool tidak di bawah char (server unequip), force reparent
-                if tool.Parent ~= char then
-                    _forceEquipTool(tool)
-                end
-            end)
-        end
-
-        local function stopWeightForceLoop()
-            if _autoWeightConn then
-                pcall(function() _autoWeightConn:Disconnect() end)
-                _autoWeightConn = nil
-            end
-            -- Kembalikan tool ke backpack dengan bersih
-            if _forcedWeightTool then
-                _unforceEquipTool(_forcedWeightTool)
-                _forcedWeightTool = nil
-            end
-        end
-
         sec:Toggle({
             Title = "Auto Weight",
             Default = false,
@@ -1200,18 +1142,43 @@ do
                         end
                         on = true
                         startAuto()
-                        startWeightForceLoop()
-                        WindUI:Notify({ Title = "Auto Weight", Content = "Enabled (force equip aktif)", Duration = 2 })
+                        WindUI:Notify({
+                            Title = "Auto Weight",
+                            Content = "Enabled",
+                            Duration = 2
+                        })
+
+                        while autoWeightOn do
+                            task.wait(2)
+                            local char = LocalPlayer.Character
+                            if not char then
+                                task.wait(2)
+                                continue
+                            end
+                            local stillEquipped = false
+                            for _, tool in ipairs(char:GetChildren()) do
+                                if tool:IsA("Tool") and WEIGHT_RANK[tool.Name] then
+                                    stillEquipped = true
+                                    break
+                                end
+                            end
+                            if not stillEquipped then
+                                equipAndStartX2()
+                            end
+                        end
                     end)
                 else
                     autoWeightOn = false
                     _autoWeightThread = nil
-                    stopWeightForceLoop()
                     if on then
                         on = false
                         stopAuto()
                     end
-                    WindUI:Notify({ Title = "Auto Weight", Content = "Disabled", Duration = 2 })
+                    WindUI:Notify({
+                        Title = "Auto Weight",
+                        Content = "Disabled",
+                        Duration = 2
+                    })
                 end
             end,
         })
@@ -1982,18 +1949,11 @@ do
             task.wait(0.1)
         end
         charConn:Disconnect()
-        task.wait(0.3)  -- dipercepat: cukup tunggu karakter ready, langsung jalan
+        task.wait(1.5)
         S._lastBrainrot = "Unknown"
         S._skipInProgress = false
         S._lastBrainrotAt = 0
         S._gachaWaitingSince = 0
-        -- reset v2 state: langsung masuk PHASE A (jalan ke target) tanpa delay
-        S._v2Kicking   = false
-        S._v2KickEnded = true
-        if S._v2EndedConn then
-            S._v2EndedConn:Disconnect()
-            S._v2EndedConn = nil
-        end
         S.autoEnabled = true
         S._arrived = false
         S._lastMove = 0
@@ -2655,33 +2615,6 @@ do
         S._lastKnownPos     = nil
         S._waitingForWave   = false
         S._forcedTPCooldown = 0
-        -- Reset v2/ori phase state setiap startLoop agar tidak stuck di phase salah
-        if S._v2EndedConn then
-            S._v2EndedConn:Disconnect()
-            S._v2EndedConn = nil
-        end
-        S._v2Kicking   = false
-        S._v2KickEnded = true
-        -- Landing grace: tunggu karakter landing dulu sebelum mulai gerak
-        -- (hindari watchdog miskira stuck saat karakter masih di udara setelah respawn)
-        local _landingChar = LocalPlayer.Character
-        local _landingHrp  = _landingChar and _landingChar:FindFirstChild("HumanoidRootPart")
-        local _landingHum  = _landingChar and _landingChar:FindFirstChildOfClass("Humanoid")
-        if _landingHrp and _landingHum then
-            local _landingStart = tick()
-            while tick() - _landingStart < 1.5 do
-                if not S.autoEnabled then break end
-                local _state = _landingHum:GetState()
-                if _state ~= Enum.HumanoidStateType.Freefall
-                    and _state ~= Enum.HumanoidStateType.Jumping
-                    and _state ~= Enum.HumanoidStateType.GettingUp then
-                    break
-                end
-                task.wait(0.05)
-            end
-        end
-        S._lastMove = 0
-        S._lastJump = 0
 
         local char0         = LocalPlayer.Character
         local hum0          = char0 and char0:FindFirstChild("Humanoid")
@@ -2777,109 +2710,16 @@ do
                         S._arrived = true
                         startGodMode()
                     end
-                    if tick() - S._lastRemote > 1.5 then
+                    do
                         S._lastRemote = tick()
                         local _arg1 = S.kickArg1 ~= nil and S.kickArg1 or 1
                         local _arg2 = S.kickArg2 ~= nil and S.kickArg2 or 1
                         pcall(function()
                             Event:FireServer(_arg1, _arg2)
                         end)
-                    end
-                end
-            elseif S.kickMode == "Luxvs Method v2" then
-                -- ══ Luxvs Method v2 ══
-                -- PHASE A (_v2KickEnded=true): TP ke target lalu langsung kick
-                -- PHASE B (_v2Kicking=true): kick terus sampai KickEventEnded
-                -- PHASE C (keduanya false): jalan kaki ke target, sampai → PHASE A lagi
-                if S._v2KickEnded then
-                    -- PHASE A: TP ke target, langsung mulai kick
-                    hrp.Anchored = false
-                    hrp.CFrame = CFrame.new(S.targetPos.X, S.targetPos.Y + 5, S.targetPos.Z)
-                    S._v2KickEnded = false
-                    S._v2Kicking   = true
-                    S._arrived     = true
-                    startGodMode()
-                    if S._v2EndedConn then
-                        S._v2EndedConn:Disconnect()
-                        S._v2EndedConn = nil
-                    end
-                    S._v2EndedConn = Network.rev_KickEventEnded.OnClientEvent:Connect(function()
-                        if not S.autoEnabled then return end
-                        S._v2Kicking   = false
-                        S._v2KickEnded = false
-                        S._arrived     = false
-                        S._lastMove    = 0
-                        S._lastJump    = 0
-                        stopGodMode()
-                        setBlind(false)
-                        if S._v2EndedConn then
-                            S._v2EndedConn:Disconnect()
-                            S._v2EndedConn = nil
-                        end
-                    end)
-                elseif S._v2Kicking then
-                    -- PHASE B: kick terus sampai KickEventEnded
-                    local waves = workspace:FindFirstChild("Waves")
-                    if waves then
-                        local tooClose = false
-                        for _, wave in ipairs(waves:GetChildren()) do
-                            local root = wave:FindFirstChild("RootPart")
-                            if root and (hrp.Position - root.Position).Magnitude <= 130 then
-                                tooClose = true
-                                break
-                            end
-                        end
-                        setBlind(tooClose)
-                    else
-                        setBlind(false)
-                    end
-                    if tick() - S._lastRemote > 1.5 then
-                        S._lastRemote = tick()
-                        local _arg1 = S.kickArg1 ~= nil and S.kickArg1 or 1
-                        local _arg2 = S.kickArg2 ~= nil and S.kickArg2 or 1
-                        pcall(function()
-                            Event:FireServer(_arg1, _arg2)
-                        end)
-                    end
-                else
-                    -- PHASE C: KickEventEnded diterima, jalan kaki ke target
-                    local waves = workspace:FindFirstChild("Waves")
-                    if waves then
-                        local tooClose = false
-                        for _, wave in ipairs(waves:GetChildren()) do
-                            local root = wave:FindFirstChild("RootPart")
-                            if root and (hrp.Position - root.Position).Magnitude <= 130 then
-                                tooClose = true
-                                break
-                            end
-                        end
-                        setBlind(tooClose)
-                    else
-                        setBlind(false)
-                    end
-                    if dist > 5 then
-                        if not _safeToAct then return end
-                        S._arrived = false
-                        if tick() - S._lastMove > 2 then
-                            S._lastMove = tick()
-                            local off = Vector3.new(math.random(-2, 2), 0, math.random(-2, 2))
-                            hum:MoveTo(S.targetPos + off)
-                        end
-                        if tick() - S._lastJump > 3 then
-                            S._lastJump = tick()
-                            local _jumpHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                            if _jumpHum then
-                                _jumpHum:ChangeState(Enum.HumanoidStateType.Jumping)
-                            end
-                        end
-                    else
-                        -- sampai di target, set siap TP+kick
-                        S._v2KickEnded = true
                     end
                 end
             else
-                -- ══ Luxvs Method (Original) ══
-                -- Logic sama persis dengan file lama: flat, tanpa phase machine
                 if hrp.Anchored then
                     hrp.Anchored = false
                 end
@@ -2900,17 +2740,11 @@ do
                 if dist > 5 then
                     if not _safeToAct then return end
                     S._arrived = false
-                    if tick() - S._lastMove > 2 then
-                        S._lastMove = tick()
-                        local off = Vector3.new(math.random(-2, 2), 0, math.random(-2, 2))
-                        hum:MoveTo(S.targetPos + off)
-                    end
-                    if tick() - S._lastJump > 3 then
-                        S._lastJump = tick()
-                        local _jumpHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                        if _jumpHum then
-                            _jumpHum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        end
+                    local off = Vector3.new(math.random(-2, 2), 0, math.random(-2, 2))
+                    hum:MoveTo(S.targetPos + off)
+                    local _jumpHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                    if _jumpHum then
+                        _jumpHum:ChangeState(Enum.HumanoidStateType.Jumping)
                     end
                 else
                     if not S._arrived then
@@ -2963,13 +2797,6 @@ do
         setBlind(false)
         S._arrived = false
         S._gachaWaiting = false
-        -- v2 cleanup
-        if S._v2EndedConn then
-            S._v2EndedConn:Disconnect()
-            S._v2EndedConn = nil
-        end
-        S._v2KickEnded = true
-        S._v2Kicking   = false
     end
 
     MainSec:Space({
@@ -3040,6 +2867,11 @@ do
                 stopAntiCutscene()
                 stopCutsceneBlock()
             end
+            WindUI:Notify({
+                Title = "Auto Farm",
+                Content = state and "On" or "Off",
+                Duration = 2,
+            })
         end,
     })
     S._autoFarmToggle = _toggleAutoKick
@@ -3105,34 +2937,15 @@ do
         _cfg.kickMode = v
         _saveCfg()
         local isTween   = v == "Tween Method"
-        local isLuxvsV2 = v == "Luxvs Method v2"
         if TweenSec and TweenSec.Frame then
             TweenSec.Frame.Visible = isTween
         end
-        if isLuxvsV2 then
-            stopAntiCutscene()
-            stopCutsceneBlock()
-            if S.autoEnabled then
-                stopLoop()
-                startLoop()
-                startWatchdog()
-            end
-        elseif v == "Luxvs Method" then
-            stopAntiCutscene()
-            stopCutsceneBlock()
-            if S.autoEnabled then
-                stopLoop()
-                startLoop()
-                startWatchdog()
-            end
-        else
-            stopAntiCutscene()
-            stopCutsceneBlock()
-            if S.autoEnabled then
-                stopLoop()
-                startLoop()
-                startWatchdog()
-            end
+        stopAntiCutscene()
+        stopCutsceneBlock()
+        if S.autoEnabled then
+            stopLoop()
+            startLoop()
+            startWatchdog()
         end
         WindUI:Notify({
             Title = "Auto Farm",
@@ -3153,7 +2966,7 @@ do
         _cfg.kickMode = name
         _saveCfg()
     end
-    local _methodNames = { "Luxvs Method", "Luxvs Method v2", "Tween Method" }
+    local _methodNames = { "Luxvs Method", "Tween Method" }
     for _, name in ipairs(_methodNames) do
         local isDefault = (S.kickMode == name)
         local t = MethodSec:Toggle({
@@ -3229,18 +3042,11 @@ do
                 task.wait(0.1)
             end
             charConn:Disconnect()
-            task.wait(0.3)  -- dipercepat
+            task.wait(1.5)
             S._lastBrainrot = "Unknown"
             S._skipInProgress = false
             S._lastBrainrotAt = 0
             S._gachaWaitingSince = 0
-            -- reset v2 state: langsung siap jalan
-            S._v2Kicking   = false
-            S._v2KickEnded = true
-            if S._v2EndedConn then
-                S._v2EndedConn:Disconnect()
-                S._v2EndedConn = nil
-            end
             S._arrived = false
             S._lastMove = 0
             S._lastRemote = 0
