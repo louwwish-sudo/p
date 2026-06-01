@@ -415,7 +415,7 @@ do
     _loadCfg()
 
     Window:Tag({
-        Title = "Premium v1.16",
+        Title = "Jembot",
         Icon = "solar:crown-line-bold",
         Color = Color3.fromRGB(190, 140, 255),
         Border = true,
@@ -806,9 +806,7 @@ do
 
         waitPos            = Vector3.new(687, 2, 234),
         waveTriggerDist    = 150,
-        _lastKnownPos      = nil,
-        _waitingForWave    = false,
-        _forcedTPCooldown  = 0,
+
         autoSellAll        = false,
         _sellAllConn       = nil,
 
@@ -1949,7 +1947,7 @@ do
             task.wait(0.1)
         end
         charConn:Disconnect()
-        task.wait(1.5)
+        task.wait(0.4)
         S._lastBrainrot = "Unknown"
         S._skipInProgress = false
         S._lastBrainrotAt = 0
@@ -2483,82 +2481,7 @@ do
         [Enum.KeyCode.Left] = true,
         [Enum.KeyCode.Right] = true,
     }
-    local function startAntiCutscene()
-        if S._acConn then return end
-        S._acInputActive = false
-        S._acLastCamCFrame = nil
-        S._acFixed = false
-        local cam = workspace.CurrentCamera
-        S._acInputBeganConn = UserInputService.InputBegan:Connect(function(input)
-            if _acMovementKeys[input.KeyCode] then S._acInputActive = true end
-        end)
-        S._acInputEndedConn = UserInputService.InputEnded:Connect(function(input)
-            if _acMovementKeys[input.KeyCode] then S._acInputActive = false end
-        end)
-        S._acConn = RunService.RenderStepped:Connect(function()
-            local char = LocalPlayer.Character
-            local hum  = char and char:FindFirstChildOfClass("Humanoid")
-            local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-            if not (char and hum and hrp) then return end
-            local cam2         = workspace.CurrentCamera
-            local isScriptable = cam2.CameraType == Enum.CameraType.Scriptable
-            local subject      = cam2.CameraSubject
-            local hijacked     = not subject or (subject ~= hum and subject ~= hrp)
-            local needFix      = isScriptable or hijacked
-            if needFix and not S._acFixed then
-                S._acFixed                     = true
-                cam2.CameraType                = Enum.CameraType.Custom
-                cam2.CameraSubject             = hum
-                cam2.CFrame                    = CFrame.new(hrp.Position + Vector3.new(0, 5, -12), hrp.Position)
-                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-            elseif not needFix and S._acFixed then
-                S._acFixed = false
-            end
-            if hrp.Anchored then hrp.Anchored = false end
-            hum.PlatformStand = false
-            hum.AutoRotate    = true
-        end)
-    end
-    local function stopAntiCutscene()
-        if S._acConn then
-            S._acConn:Disconnect()
-            S._acConn = nil
-        end
-        if S._acInputBeganConn then
-            S._acInputBeganConn:Disconnect()
-            S._acInputBeganConn = nil
-        end
-        if S._acInputEndedConn then
-            S._acInputEndedConn:Disconnect()
-            S._acInputEndedConn = nil
-        end
-        S._acFixed = false
-        S._acLastCamCFrame = nil
-    end
 
-    local function startCutsceneBlock()
-        if S._cbConn then return end
-        S._cbConn = RunService.RenderStepped:Connect(function()
-            local cam  = workspace.CurrentCamera
-            local char = LocalPlayer.Character
-            local hum  = char and char:FindFirstChildOfClass("Humanoid")
-            local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-            if not (hum and hrp) then return end
-            local isScriptable = cam.CameraType == Enum.CameraType.Scriptable
-            local subject      = cam.CameraSubject
-            local hijacked     = not subject or (subject ~= hum and subject ~= hrp)
-            if isScriptable or hijacked then
-                cam.CameraType    = Enum.CameraType.Custom
-                cam.CameraSubject = hum
-            end
-        end)
-    end
-    local function stopCutsceneBlock()
-        if S._cbConn then
-            S._cbConn:Disconnect()
-            S._cbConn = nil
-        end
-    end
 
     local function startWatchdog()
         if getgenv().__lshub_watchdog then
@@ -2578,7 +2501,6 @@ do
             if _wdLastPos
                 and (curPos - _wdLastPos).Magnitude < 1
                 and dist > 8
-                and not S._waitingForWave
                 and not S._gachaWaiting
                 and not S._skipInProgress then
                 warn("[Watchdog] Stuck terdeteksi, restart loop...")
@@ -2612,9 +2534,6 @@ do
         S._lastMove         = 0
         S._lastRemote       = 0
         S._lastJump         = 0
-        S._lastKnownPos     = nil
-        S._waitingForWave   = false
-        S._forcedTPCooldown = 0
 
         local char0         = LocalPlayer.Character
         local hum0          = char0 and char0:FindFirstChild("Humanoid")
@@ -2710,7 +2629,7 @@ do
                         S._arrived = true
                         startGodMode()
                     end
-                    do
+                    if tick() - S._lastRemote > 1.5 then
                         S._lastRemote = tick()
                         local _arg1 = S.kickArg1 ~= nil and S.kickArg1 or 1
                         local _arg2 = S.kickArg2 ~= nil and S.kickArg2 or 1
@@ -2740,18 +2659,24 @@ do
                 if dist > 5 then
                     if not _safeToAct then return end
                     S._arrived = false
-                    local off = Vector3.new(math.random(-2, 2), 0, math.random(-2, 2))
-                    hum:MoveTo(S.targetPos + off)
-                    local _jumpHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                    if _jumpHum then
-                        _jumpHum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    if tick() - S._lastMove > 0.4 then
+                        S._lastMove = tick()
+                        local off = Vector3.new(math.random(-2, 2), 0, math.random(-2, 2))
+                        hum:MoveTo(S.targetPos + off)
+                    end
+                    if tick() - S._lastJump > 3 then
+                        S._lastJump = tick()
+                        local _jumpHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                        if _jumpHum then
+                            _jumpHum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end
                     end
                 else
                     if not S._arrived then
                         S._arrived = true
                         startGodMode()
                     end
-                    if tick() - S._lastRemote > 1.5 then
+                    if tick() - S._lastRemote > 0.4 then
                         S._lastRemote = tick()
                         local _arg1 = S.kickArg1 ~= nil and S.kickArg1 or 1
                         local _arg2 = S.kickArg2 ~= nil and S.kickArg2 or 1
@@ -2782,9 +2707,6 @@ do
             end
         end
         S._lastTweenTarget = nil
-        S._lastKnownPos = nil
-        S._waitingForWave = false
-        S._forcedTPCooldown = 0
         local char3 = LocalPlayer.Character
         local hrp3 = char3 and char3:FindFirstChild("HumanoidRootPart")
         local hum3 = char3 and char3:FindFirstChildOfClass("Humanoid")
@@ -2864,8 +2786,6 @@ do
             else
                 stopLoop()
                 stopWatchdog()
-                stopAntiCutscene()
-                stopCutsceneBlock()
             end
             WindUI:Notify({
                 Title = "Auto Farm",
@@ -2936,12 +2856,10 @@ do
         S.kickMode    = v
         _cfg.kickMode = v
         _saveCfg()
-        local isTween   = v == "Tween Method"
+        local isTween = v == "Tween Method"
         if TweenSec and TweenSec.Frame then
             TweenSec.Frame.Visible = isTween
         end
-        stopAntiCutscene()
-        stopCutsceneBlock()
         if S.autoEnabled then
             stopLoop()
             startLoop()
@@ -3042,7 +2960,7 @@ do
                 task.wait(0.1)
             end
             charConn:Disconnect()
-            task.wait(1.5)
+            task.wait(0.4)
             S._lastBrainrot = "Unknown"
             S._skipInProgress = false
             S._lastBrainrotAt = 0
