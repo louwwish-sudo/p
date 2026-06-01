@@ -415,7 +415,7 @@ do
     _loadCfg()
 
     Window:Tag({
-        Title = "Premium v1.17",
+        Title = "Premium vmemek",
         Icon = "solar:crown-line-bold",
         Color = Color3.fromRGB(190, 140, 255),
         Border = true,
@@ -2787,100 +2787,56 @@ do
                     end
                 end
             elseif S.kickMode == "Luxvs Method v2" then
-                if S._v2Kicking then
-                    -- PHASE B: sedang kicking, FireServer terus, tunggu KickEventEnded
-                    local waves = workspace:FindFirstChild("Waves")
-                    if waves then
-                        local tooClose = false
-                        for _, wave in ipairs(waves:GetChildren()) do
-                            local root = wave:FindFirstChild("RootPart")
-                            if root and (hrp.Position - root.Position).Magnitude <= 130 then
-                                tooClose = true
-                                break
-                            end
+                -- ══ Luxvs Method v2 ══
+                -- Sama persis dengan Luxvs Method Original,
+                -- bedanya: TP sekali ke target di awal (saat _v2KickEnded=true) sebelum kick
+                if S._v2KickEnded then
+                    -- TP sekali ke target, lalu reset flag dan lanjut seperti original
+                    hrp.Anchored = false
+                    hrp.CFrame = CFrame.new(S.targetPos.X, S.targetPos.Y + 5, S.targetPos.Z)
+                    S._v2KickEnded = false
+                end
+                local waves = workspace:FindFirstChild("Waves")
+                if waves then
+                    local tooClose = false
+                    for _, wave in ipairs(waves:GetChildren()) do
+                        local root = wave:FindFirstChild("RootPart")
+                        if root and (hrp.Position - root.Position).Magnitude <= 130 then
+                            tooClose = true
+                            break
                         end
-                        setBlind(tooClose)
-                    else
-                        setBlind(false)
                     end
-                    if tick() - S._lastRemote > 0.3 then
+                    setBlind(tooClose)
+                else
+                    setBlind(false)
+                end
+                if dist > 5 then
+                    if not _safeToAct then return end
+                    S._arrived = false
+                    if tick() - S._lastMove > 2 then
+                        S._lastMove = tick()
+                        local off = Vector3.new(math.random(-2, 2), 0, math.random(-2, 2))
+                        hum:MoveTo(S.targetPos + off)
+                    end
+                    if tick() - S._lastJump > 3 then
+                        S._lastJump = tick()
+                        local _jumpHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                        if _jumpHum then
+                            _jumpHum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end
+                    end
+                else
+                    if not S._arrived then
+                        S._arrived = true
+                        startGodMode()
+                    end
+                    if tick() - S._lastRemote > 1.5 then
                         S._lastRemote = tick()
                         local _arg1 = S.kickArg1 ~= nil and S.kickArg1 or 1
                         local _arg2 = S.kickArg2 ~= nil and S.kickArg2 or 1
                         pcall(function()
                             Event:FireServer(_arg1, _arg2)
                         end)
-                    end
-                elseif S._v2KickEnded then
-                    -- PHASE A: siap kick, TP ke atas target lalu tunggu masuk area
-                    -- dist check pakai XZ saja, biar Y+5 offset tidak bikin infinite TP
-                    local distXZ = Vector3.new(hrp.Position.X - S.targetPos.X, 0, hrp.Position.Z - S.targetPos.Z).Magnitude
-                    if distXZ > 3 then
-                        hrp.Anchored = false
-                        hrp.CFrame = CFrame.new(
-                            S.targetPos.X,
-                            S.targetPos.Y + 5,
-                            S.targetPos.Z
-                        )
-                    else
-                        -- masuk area kick, pasang listener dan mulai kick
-                        S._v2Kicking   = true
-                        S._v2KickEnded = false
-                        S._arrived     = true
-                        startGodMode()
-                        if S._v2EndedConn then
-                            S._v2EndedConn:Disconnect()
-                            S._v2EndedConn = nil
-                        end
-                        S._v2EndedConn = Network.rev_KickEventEnded.OnClientEvent:Connect(function()
-                            if not S.autoEnabled then return end
-                            S._v2Kicking   = false
-                            S._v2KickEnded = false
-                            S._arrived     = false
-                            S._lastMove    = 0
-                            S._lastJump    = 0
-                            stopGodMode()
-                            setBlind(false)
-                            if S._v2EndedConn then
-                                S._v2EndedConn:Disconnect()
-                                S._v2EndedConn = nil
-                            end
-                        end)
-                    end
-                else
-                    -- PHASE C: KickEventEnded diterima, jalan kaki ke target
-                    local waves = workspace:FindFirstChild("Waves")
-                    if waves then
-                        local tooClose = false
-                        for _, wave in ipairs(waves:GetChildren()) do
-                            local root = wave:FindFirstChild("RootPart")
-                            if root and (hrp.Position - root.Position).Magnitude <= 130 then
-                                tooClose = true
-                                break
-                            end
-                        end
-                        setBlind(tooClose)
-                    else
-                        setBlind(false)
-                    end
-                    if dist > 5 then
-                        if not _safeToAct then return end
-                        S._arrived = false
-                        if tick() - S._lastMove > 2 then
-                            S._lastMove = tick()
-                            local off = Vector3.new(math.random(-2, 2), 0, math.random(-2, 2))
-                            hum:MoveTo(S.targetPos + off)
-                        end
-                        if tick() - S._lastJump > 3 then
-                            S._lastJump = tick()
-                            local _jumpHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                            if _jumpHum then
-                                _jumpHum:ChangeState(Enum.HumanoidStateType.Jumping)
-                            end
-                        end
-                    else
-                        -- sampai di target, set siap kick
-                        S._v2KickEnded = true
                     end
                 end
             else
