@@ -1,4 +1,3 @@
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -416,7 +415,7 @@ do
     _loadCfg()
 
     Window:Tag({
-        Title = "Premium v1.17.5",
+        Title = "memek v1.17.5",
         Icon = "solar:crown-line-bold",
         Color = Color3.fromRGB(190, 140, 255),
         Border = true,
@@ -3860,6 +3859,92 @@ do
                 embed.image = { url = thumbUrl }
             end
 
+            -- Build backpack snapshot field
+            do
+                local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+                local char     = LocalPlayer.Character
+                local _rarOrd  = {
+                    "Eternal","Celestial","OG","Hacked","Divine","Secret",
+                    "Godly","Exclusive","Mythic","Legendary","Epic","Rare","Common"
+                }
+                local _rarRank = {}
+                for i, r in ipairs(_rarOrd) do _rarRank[r] = i end
+
+                if backpack then
+                    local bpItems = {}
+                    local function _addTool(tool, equipped)
+                        if not tool:IsA("Tool") then return end
+                        local mut = nil
+                        pcall(function()
+                            local h = tool:FindFirstChild("Handle")
+                            if h then mut = h:GetAttribute("Mutation") end
+                            if not mut then mut = tool:GetAttribute("Mutation") end
+                        end)
+                        if mut and NORMAL_MUTATION_VALUES[string.lower(tostring(mut))] then mut = nil end
+                        -- fallback ke WH mutation cache
+                        if not mut then
+                            local cached = WH._lastMutationCache[tool.Name] or WH._inGameMutCache[tool.Name]
+                            if cached and not NORMAL_MUTATION_VALUES[string.lower(tostring(cached))] then
+                                mut = cached
+                            end
+                        end
+                        local key = tool.Name .. "|" .. (mut or "")
+                        if bpItems[key] then
+                            bpItems[key].count = bpItems[key].count + 1
+                            if equipped then bpItems[key].equipped = true end
+                        else
+                            bpItems[key] = {
+                                name     = tool.Name,
+                                rarity   = BRAINROT_LOOKUP[tool.Name] or "Other",
+                                mutation = mut,
+                                count    = 1,
+                                equipped = equipped,
+                            }
+                        end
+                    end
+                    for _, t in ipairs(backpack:GetChildren()) do _addTool(t, false) end
+                    if char then
+                        for _, t in ipairs(char:GetChildren()) do _addTool(t, true) end
+                    end
+
+                    if next(bpItems) then
+                        local sorted = {}
+                        for _, v in pairs(bpItems) do table.insert(sorted, v) end
+                        table.sort(sorted, function(a, b)
+                            local ra = _rarRank[a.rarity] or 99
+                            local rb = _rarRank[b.rarity] or 99
+                            if ra ~= rb then return ra < rb end
+                            return a.name < b.name
+                        end)
+
+                        local lines = {}
+                        local total = 0
+                        for _, item in ipairs(sorted) do
+                            local line = item.name .. " [" .. item.rarity .. "]"
+                            if item.mutation then line = line .. " {" .. item.mutation .. "}" end
+                            if item.count > 1  then line = line .. " x" .. item.count end
+                            if item.equipped   then line = line .. " *" end
+                            table.insert(lines, line)
+                            total = total + item.count
+                        end
+                        table.insert(lines, 1, "Total: " .. total .. " item(s)")
+                        table.insert(lines, 2, "")
+
+                        local bpText = table.concat(lines, "\n")
+                        -- Discord field value max 1024 chars
+                        if #bpText > 1000 then
+                            bpText = bpText:sub(1, 997) .. "..."
+                        end
+
+                        table.insert(embed.fields, {
+                            name   = "Backpack",
+                            value  = "```\n" .. bpText .. "\n```",
+                            inline = false,
+                        })
+                    end
+                end
+            end
+
             local payload = {
                 content    = contentText,
                 username   = "Luxvs Community Webhook",
@@ -3875,163 +3960,6 @@ do
                     Body = HS:JSONEncode(payload),
                 })
             end)
-        end
-
-        local function sendBackpackWebhook()
-            if WH.url == "" then return end
-            local HS  = game:GetService("HttpService")
-            local req = (syn and syn.request) or http_request or request
-            local plr = Players.LocalPlayer
-            local playerName = WH.anonymous and "Anonymous" or plr.Name
-
-            -- Build item list from backpack + equipped
-            local bpLookupLocal = {}
-            for _, entry in ipairs(ALL_BRAINROTS) do
-                bpLookupLocal[entry.name] = entry.rarity
-            end
-
-            local rarityOrderLocal = {
-                "Eternal","Celestial","OG","Hacked","Divine","Secret",
-                "Godly","Exclusive","Mythic","Legendary","Epic","Rare","Common"
-            }
-            local rarityRankLocal = {}
-            for i, r in ipairs(rarityOrderLocal) do rarityRankLocal[r] = i end
-
-            local RARITY_EMOJIS = {
-                Eternal   = "🌌", Celestial = "✨", OG        = "🔴",
-                Hacked    = "💚", Divine    = "🔱", Secret    = "⚫",
-                Godly     = "🟤", Exclusive = "🩷", Mythic    = "🟥",
-                Legendary = "🟡", Epic      = "🟢", Rare      = "🔵",
-                Common    = "⚪", Other     = "❓",
-            }
-
-            local backpack = plr:FindFirstChildOfClass("Backpack")
-            local char     = plr.Character
-            if not backpack then
-                WindUI:Notify({ Title = "Webhook", Content = "Backpack not found!", Duration = 3 })
-                return
-            end
-
-            local items = {}
-            local function addTool(tool, isEquipped)
-                if not tool:IsA("Tool") then return end
-                -- reuse mutation logic
-                local mut = nil
-                pcall(function()
-                    local h = tool:FindFirstChild("Handle")
-                    if h then mut = h:GetAttribute("Mutation") end
-                    if not mut then mut = tool:GetAttribute("Mutation") end
-                end)
-                if mut and NORMAL_MUTATION_VALUES[string.lower(tostring(mut))] then mut = nil end
-                local key = tool.Name .. "|" .. (mut or "")
-                if items[key] then
-                    items[key].count = items[key].count + 1
-                    if isEquipped then items[key].equipped = true end
-                else
-                    items[key] = {
-                        name     = tool.Name,
-                        rarity   = bpLookupLocal[tool.Name] or "Other",
-                        mutation = mut,
-                        count    = 1,
-                        equipped = isEquipped,
-                    }
-                end
-            end
-
-            for _, t in ipairs(backpack:GetChildren()) do addTool(t, false) end
-            if char then
-                for _, t in ipairs(char:GetChildren()) do addTool(t, true) end
-            end
-
-            if next(items) == nil then
-                WindUI:Notify({ Title = "Webhook", Content = "Backpack kosong!", Duration = 3 })
-                return
-            end
-
-            -- Sort by rarity
-            local list = {}
-            for _, item in pairs(items) do table.insert(list, item) end
-            table.sort(list, function(a, b)
-                local ra = rarityRankLocal[a.rarity] or 99
-                local rb = rarityRankLocal[b.rarity] or 99
-                if ra ~= rb then return ra < rb end
-                return a.name < b.name
-            end)
-
-            -- Group by rarity for embed fields (max 1024 chars per field)
-            local groups = {}
-            local groupOrder = {}
-            for _, item in ipairs(list) do
-                local r = item.rarity
-                if not groups[r] then
-                    groups[r] = {}
-                    table.insert(groupOrder, r)
-                end
-                table.insert(groups[r], item)
-            end
-
-            local fields = {}
-            local totalCount = 0
-            for _, r in ipairs(groupOrder) do
-                local lines = {}
-                for _, item in ipairs(groups[r]) do
-                    local emoji = RARITY_EMOJIS[r] or "❓"
-                    local line = emoji .. " **" .. item.name .. "**"
-                    if item.mutation then line = line .. " `" .. item.mutation .. "`" end
-                    if item.count > 1  then line = line .. " x" .. item.count end
-                    if item.equipped   then line = line .. " *(equipped)*" end
-                    table.insert(lines, line)
-                    totalCount = totalCount + item.count
-                end
-                table.insert(fields, {
-                    name   = r .. " (" .. #groups[r] .. ")",
-                    value  = table.concat(lines, "\n"),
-                    inline = false,
-                })
-            end
-
-            -- Prepend summary field
-            table.insert(fields, 1, {
-                name   = "📦 Summary",
-                value  = "**Player:** " .. playerName .. "\n**Total Items:** " .. totalCount,
-                inline = false,
-            })
-
-            local profileUrl = "https://www.roblox.com/users/" .. plr.UserId .. "/profile"
-            local payload = {
-                content    = "📦 **" .. playerName .. "** — Backpack Snapshot",
-                username   = "Luxvs Community Webhook",
-                avatar_url = "https://cdn.discordapp.com/attachments/1483239061069103224/1505974481028386836/luxvers.png?ex=6a0c9387&is=6a0b4207&hm=6bad2cd6e76d208310b4e9e2292d6a65346221abda4d1bd8b56b47203d21d298",
-                embeds     = {
-                    {
-                        title     = "🎒 Backpack Snapshot",
-                        color     = 0x7EB8A8,
-                        fields    = fields,
-                        footer    = {
-                            text = "Luxvs Community • Kick A Lucky Block"
-                        },
-                        author    = {
-                            name     = playerName,
-                            url      = profileUrl,
-                        },
-                        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-                    }
-                },
-            }
-
-            local ok, err = pcall(function()
-                req({
-                    Url     = WH.url,
-                    Method  = "POST",
-                    Headers = { ["Content-Type"] = "application/json" },
-                    Body    = HS:JSONEncode(payload),
-                })
-            end)
-            if ok then
-                WindUI:Notify({ Title = "Webhook", Content = "Backpack terkirim! (" .. totalCount .. " items)", Duration = 3 })
-            else
-                WindUI:Notify({ Title = "Webhook", Content = "Gagal kirim: " .. tostring(err), Duration = 4 })
-            end
         end
 
         local function startWebhookMonitor()
@@ -4432,24 +4360,6 @@ do
                     Content  = "Test connected sent!",
                     Duration = 3,
                 })
-            end,
-        })
-
-        WHSec:Button({
-            Title   = "Send Backpack to Webhook",
-            Icon    = "solar:bag-bold-duotone",
-            Justify = "Center",
-            Color   = Color3.fromHex("#7EB8A8"),
-            Callback = function()
-                if WH.url == "" then
-                    WindUI:Notify({
-                        Title    = "Webhooks",
-                        Content  = "Set a Webhook URL first!",
-                        Duration = 3,
-                    })
-                    return
-                end
-                task.spawn(sendBackpackWebhook)
             end,
         })
     end
