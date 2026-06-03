@@ -415,7 +415,7 @@ do
     _loadCfg()
 
     Window:Tag({
-        Title = "Premium v1.17.5",
+        Title = "pepek v1.17.5",
         Icon = "solar:crown-line-bold",
         Color = Color3.fromRGB(190, 140, 255),
         Border = true,
@@ -3742,6 +3742,13 @@ do
         })
     end
 
+    -- Webhook widget refs hoisted so task.defer can access them for restore
+    local _whRarityDd         = nil
+    local _whMutDd             = nil
+    local _whToggleMonitor     = nil
+    local _whDropdownReady     = false
+    local _whMutDropdownReady  = false
+
     do
         local WebhookTab = MainCore:Tab({
             Title = "Webhooks",
@@ -3802,12 +3809,9 @@ do
             local playerName = WH.anonymous and "Anonymous" or plr.Name
             local hasMutation = mutation and mutation ~= "" and mutation ~= "Normal"
             local mutationDisplay = hasMutation and mutation or "Normal"
-            local isAnon    = WH.anonymous
-            local joinUrl   = isAnon and "Hidden"
-                or ("https://www.roblox.com/games/start?placeId=" .. game.PlaceId .. "&gameInstanceId=" .. game.JobId)
+            local joinUrl = "https://www.roblox.com/games/start?placeId=" .. game.PlaceId ..
+                "&gameInstanceId=" .. game.JobId
             local profileUrl = "https://www.roblox.com/users/" .. plr.UserId .. "/profile"
-            local serverIdDisplay = isAnon and "Hidden" or ("```\n" .. tostring(game.JobId) .. "\n```")
-            local playerDisplay   = isAnon and playerName or ("[" .. playerName .. "](" .. profileUrl .. ")")
 
             -- Content text di luar embed
             local contentText = hasMutation
@@ -3833,7 +3837,7 @@ do
                     },
                     {
                         name   = "Server ID",
-                        value  = serverIdDisplay,
+                        value  = "```\n" .. tostring(game.JobId) .. "\n```",
                         inline = false,
                     },
                     {
@@ -3843,7 +3847,7 @@ do
                     },
                     {
                         name   = "Player",
-                        value  = playerDisplay,
+                        value  = "[" .. playerName .. "](" .. profileUrl .. ")",
                         inline = true,
                     },
                     {
@@ -4084,11 +4088,35 @@ do
             Box = true,
             Opened = false,
         })
+
+        -- Pre-load WH state from config before widgets are created
+        WH.url       = _cfg.whUrl       or ""
+        WH.anonymous = _cfg.whAnonymous or false
+        WH.notifyAll = _cfg.whNotifyAll or false
+        if type(_cfg.whSelectedRarities) == "table" then
+            for _, r in ipairs(_cfg.whSelectedRarities) do
+                WH.selectedRarities[r] = true
+            end
+        end
+        if type(_cfg.whSelectedMutations) == "table" then
+            for _, m in ipairs(_cfg.whSelectedMutations) do
+                WH.selectedMutations[m] = true
+                WH.selectedMutations[string.lower(m)] = true
+            end
+        end
+
+        -- Widget references (declared at outer scope for task.defer access)
+        local _whToggleNotify = nil
+        local _whToggleAnon   = nil
+
         WHSec:Input({
-            Title = "Webhook URL",
+            Title       = "Webhook URL",
             Placeholder = "https://discord.com/api/webhooks/...",
-            Callback = function(v)
-                WH.url = v or ""
+            Default     = _cfg.whUrl or "",
+            Callback    = function(v)
+                WH.url      = v or ""
+                _cfg.whUrl  = WH.url
+                _saveCfg()
             end,
         })
         WHSec:Space({
@@ -4099,8 +4127,7 @@ do
         for _, r in ipairs(rarityOrder) do
             table.insert(whRarityValues, { Title = r })
         end
-        local _whDropdownReady = false
-        WHSec:Dropdown({
+        _whRarityDd = WHSec:Dropdown({
             Title    = "Rarity Filter",
             Values   = whRarityValues,
             Multi    = true,
@@ -4114,6 +4141,13 @@ do
                     local title = type(v) == "table" and v.Title or key
                     WH.selectedRarities[title] = true
                 end
+                -- save as array
+                local saveList = {}
+                for r2, _ in pairs(WH.selectedRarities) do
+                    table.insert(saveList, r2)
+                end
+                _cfg.whSelectedRarities = saveList
+                _saveCfg()
                 local count = 0
                 for _ in pairs(WH.selectedRarities) do count = count + 1 end
                 WindUI:Notify({
@@ -4136,8 +4170,7 @@ do
         for _, m in ipairs(_allMutationsForWH) do
             table.insert(whMutationValues, { Title = m })
         end
-        local _whMutDropdownReady = false
-        WHSec:Dropdown({
+        _whMutDd = WHSec:Dropdown({
             Title    = "Mutation Filter",
             Values   = whMutationValues,
             Multi    = true,
@@ -4152,9 +4185,18 @@ do
                     WH.selectedMutations[string.lower(title)] = true
                     WH.selectedMutations[title] = true
                 end
+                -- save as array (only original-case keys)
+                local saveList = {}
+                for _, m2 in ipairs(_allMutationsForWH) do
+                    if WH.selectedMutations[m2] then
+                        table.insert(saveList, m2)
+                    end
+                end
+                _cfg.whSelectedMutations = saveList
+                _saveCfg()
                 local cnt2 = 0
-                for _, m in ipairs(_allMutationsForWH) do
-                    if WH.selectedMutations[m] then cnt2 = cnt2 + 1 end
+                for _, m2 in ipairs(_allMutationsForWH) do
+                    if WH.selectedMutations[m2] then cnt2 = cnt2 + 1 end
                 end
                 WindUI:Notify({
                     Title    = "Webhook Filter",
@@ -4164,15 +4206,17 @@ do
             end,
         })
 
-        WHSec:Toggle({
+        _whToggleNotify = WHSec:Toggle({
             Title    = "Enable Notify",
-            Default  = false,
+            Default  = _cfg.whNotifyAll or false,
             Callback = function(v)
                 WH.notifyAll = v
                 if v then
                     WH.filterByRarity   = false
                     WH.filterByMutation = false
                 end
+                _cfg.whNotifyAll = v
+                _saveCfg()
                 WindUI:Notify({
                     Title    = "Webhook",
                     Content  = v and "Notify all rarities" or "Notify all off",
@@ -4181,8 +4225,8 @@ do
             end,
         })
 
-        WHSec:Toggle({
-            Title = "Enable Webhook Monitor",
+        _whToggleMonitor = WHSec:Toggle({
+            Title   = "Enable Webhook Monitor",
             Default = false,
             Callback = function(v)
                 WH.enabled = v
@@ -4210,16 +4254,20 @@ do
                         Duration = 2
                     })
                 end
+                _cfg.whMonitor = WH.enabled
+                _saveCfg()
             end,
         })
         WHSec:Space({ Columns = 0.5 })
-        WHSec:Toggle({
+        _whToggleAnon = WHSec:Toggle({
             Title    = "Anonymous",
             Type     = "Checkbox",
             Desc     = "Hide your username from webhook",
-            Default  = false,
+            Default  = _cfg.whAnonymous or false,
             Callback = function(v)
-                WH.anonymous = v
+                WH.anonymous     = v
+                _cfg.whAnonymous = v
+                _saveCfg()
                 WindUI:Notify({
                     Title    = "Webhook",
                     Content  = v and "Anonymous enabled" or "Anonymous disabled",
@@ -7037,6 +7085,38 @@ do
 
         if _cfg.autoRejoinKick and _toggleAutoRejoinKick then
             _toggleAutoRejoinKick:Set(true)
+        end
+
+        -- ── Restore Webhook config ─────────────────────────────
+        -- URL & state sudah di-pre-load ke WH sebelum widget dibuat.
+        -- Dropdown multi-select perlu .Set() manual karena tidak support Default array.
+        if type(_cfg.whSelectedRarities) == "table" and #_cfg.whSelectedRarities > 0 then
+            if _whRarityDd and _whRarityDd.Set then
+                _whDropdownReady = true
+                local ddVal = {}
+                for _, r in ipairs(_cfg.whSelectedRarities) do
+                    ddVal[r] = { Title = r }
+                end
+                pcall(function() _whRarityDd:Set(ddVal) end)
+            end
+        end
+
+        if type(_cfg.whSelectedMutations) == "table" and #_cfg.whSelectedMutations > 0 then
+            if _whMutDd and _whMutDd.Set then
+                _whMutDropdownReady = true
+                local ddVal = {}
+                for _, m in ipairs(_cfg.whSelectedMutations) do
+                    ddVal[m] = { Title = m }
+                end
+                pcall(function() _whMutDd:Set(ddVal) end)
+            end
+        end
+
+        -- Monitor toggle: restore terakhir supaya WH.url sudah terisi
+        if _cfg.whMonitor and WH.url ~= "" then
+            if _whToggleMonitor and _whToggleMonitor.Set then
+                pcall(function() _whToggleMonitor:Set(true) end)
+            end
         end
 
         _uiReady = true
