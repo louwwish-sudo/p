@@ -415,7 +415,7 @@ do
     _loadCfg()
 
     Window:Tag({
-        Title = "memek v1.17.5",
+        Title = "Premium v1.17.5",
         Icon = "solar:crown-line-bold",
         Color = Color3.fromRGB(190, 140, 255),
         Border = true,
@@ -3802,9 +3802,12 @@ do
             local playerName = WH.anonymous and "Anonymous" or plr.Name
             local hasMutation = mutation and mutation ~= "" and mutation ~= "Normal"
             local mutationDisplay = hasMutation and mutation or "Normal"
-            local joinUrl = "https://www.roblox.com/games/start?placeId=" .. game.PlaceId ..
-                "&gameInstanceId=" .. game.JobId
+            local isAnon    = WH.anonymous
+            local joinUrl   = isAnon and "Hidden"
+                or ("https://www.roblox.com/games/start?placeId=" .. game.PlaceId .. "&gameInstanceId=" .. game.JobId)
             local profileUrl = "https://www.roblox.com/users/" .. plr.UserId .. "/profile"
+            local serverIdDisplay = isAnon and "Hidden" or ("```\n" .. tostring(game.JobId) .. "\n```")
+            local playerDisplay   = isAnon and playerName or ("[" .. playerName .. "](" .. profileUrl .. ")")
 
             -- Content text di luar embed
             local contentText = hasMutation
@@ -3830,7 +3833,7 @@ do
                     },
                     {
                         name   = "Server ID",
-                        value  = "```\n" .. tostring(game.JobId) .. "\n```",
+                        value  = serverIdDisplay,
                         inline = false,
                     },
                     {
@@ -3840,7 +3843,7 @@ do
                     },
                     {
                         name   = "Player",
-                        value  = "[" .. playerName .. "](" .. profileUrl .. ")",
+                        value  = playerDisplay,
                         inline = true,
                     },
                     {
@@ -3857,92 +3860,6 @@ do
 
             if thumbUrl then
                 embed.image = { url = thumbUrl }
-            end
-
-            -- Build backpack snapshot field
-            do
-                local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-                local char     = LocalPlayer.Character
-                local _rarOrd  = {
-                    "Eternal","Celestial","OG","Hacked","Divine","Secret",
-                    "Godly","Exclusive","Mythic","Legendary","Epic","Rare","Common"
-                }
-                local _rarRank = {}
-                for i, r in ipairs(_rarOrd) do _rarRank[r] = i end
-
-                if backpack then
-                    local bpItems = {}
-                    local function _addTool(tool, equipped)
-                        if not tool:IsA("Tool") then return end
-                        local mut = nil
-                        pcall(function()
-                            local h = tool:FindFirstChild("Handle")
-                            if h then mut = h:GetAttribute("Mutation") end
-                            if not mut then mut = tool:GetAttribute("Mutation") end
-                        end)
-                        if mut and NORMAL_MUTATION_VALUES[string.lower(tostring(mut))] then mut = nil end
-                        -- fallback ke WH mutation cache
-                        if not mut then
-                            local cached = WH._lastMutationCache[tool.Name] or WH._inGameMutCache[tool.Name]
-                            if cached and not NORMAL_MUTATION_VALUES[string.lower(tostring(cached))] then
-                                mut = cached
-                            end
-                        end
-                        local key = tool.Name .. "|" .. (mut or "")
-                        if bpItems[key] then
-                            bpItems[key].count = bpItems[key].count + 1
-                            if equipped then bpItems[key].equipped = true end
-                        else
-                            bpItems[key] = {
-                                name     = tool.Name,
-                                rarity   = BRAINROT_LOOKUP[tool.Name] or "Other",
-                                mutation = mut,
-                                count    = 1,
-                                equipped = equipped,
-                            }
-                        end
-                    end
-                    for _, t in ipairs(backpack:GetChildren()) do _addTool(t, false) end
-                    if char then
-                        for _, t in ipairs(char:GetChildren()) do _addTool(t, true) end
-                    end
-
-                    if next(bpItems) then
-                        local sorted = {}
-                        for _, v in pairs(bpItems) do table.insert(sorted, v) end
-                        table.sort(sorted, function(a, b)
-                            local ra = _rarRank[a.rarity] or 99
-                            local rb = _rarRank[b.rarity] or 99
-                            if ra ~= rb then return ra < rb end
-                            return a.name < b.name
-                        end)
-
-                        local lines = {}
-                        local total = 0
-                        for _, item in ipairs(sorted) do
-                            local line = item.name .. " [" .. item.rarity .. "]"
-                            if item.mutation then line = line .. " {" .. item.mutation .. "}" end
-                            if item.count > 1  then line = line .. " x" .. item.count end
-                            if item.equipped   then line = line .. " *" end
-                            table.insert(lines, line)
-                            total = total + item.count
-                        end
-                        table.insert(lines, 1, "Total: " .. total .. " item(s)")
-                        table.insert(lines, 2, "")
-
-                        local bpText = table.concat(lines, "\n")
-                        -- Discord field value max 1024 chars
-                        if #bpText > 1000 then
-                            bpText = bpText:sub(1, 997) .. "..."
-                        end
-
-                        table.insert(embed.fields, {
-                            name   = "Backpack",
-                            value  = "```\n" .. bpText .. "\n```",
-                            inline = false,
-                        })
-                    end
-                end
             end
 
             local payload = {
